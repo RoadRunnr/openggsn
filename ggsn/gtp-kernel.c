@@ -93,23 +93,14 @@ static struct {
 /* Always forces the kernel to allocate gtp0. If it exists it hits EEXIST */
 #define GTP_DEVNAME	"gtp0"
 
-static unsigned int ns_if_nametoindex(int ns, const char *name)
-{
-	unsigned int r;
-	sigset_t oldmask;
-
-	switch_ns(ns, &oldmask);
-	r = if_nametoindex(name);
-	restore_ns(&oldmask);
-
-	return r;
-}
-
 int gtp_kernel_init(int ns,
 		    struct gsn_t *gsn, struct in_addr *net,
 		    struct in_addr *mask,
 		    struct gengetopt_args_info *args_info)
 {
+	unsigned int ret = 0;
+	sigset_t oldmask;
+
 	if (!args_info->gtpnl_given)
 		return 0;
 
@@ -123,7 +114,6 @@ int gtp_kernel_init(int ns,
 
 	gtp_nl.enabled = true;
 	gtp_nl.ns = ns;
-	gtp_nl.ifidx = ns_if_nametoindex(ns, GTP_DEVNAME);
 
 	gtp_nl.nl = genl_socket_open();
 	if (gtp_nl.nl == NULL) {
@@ -145,6 +135,12 @@ int gtp_kernel_init(int ns,
 
 	DEBUGP(DGGSN, "Setting route to reach %s via %s\n",
 	       args_info->net_arg, GTP_DEVNAME);
+
+	/* configure gtp dev in it's own namespace */
+	if (ns > 0)
+		switch_ns(ns, &oldmask);
+
+	gtp_nl.ifidx = if_nametoindex(GTP_DEVNAME);
 
 	if (gtp_dev_config(GTP_DEVNAME, net, mask2prefix(mask)) < 0) {
 		SYS_ERR(DGGSN, LOGL_ERROR, 0,
@@ -170,12 +166,16 @@ int gtp_kernel_init(int ns,
 		if (err < 0) {
 			SYS_ERR(DGGSN, LOGL_ERROR, 0,
 				"Failed to launch script `%s'", ipup);
-			return -1;
+			ret = -1;
 		}
 	}
+
+	if (ns > 0)
+		restore_ns(&oldmask);
+
 	SYS_ERR(DGGSN, LOGL_NOTICE, 0, "GTP kernel configured\n");
 
-	return 0;
+	return ret;
 }
 
 void gtp_kernel_stop(void)
