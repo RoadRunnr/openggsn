@@ -93,6 +93,18 @@ static struct {
 /* Always forces the kernel to allocate gtp0. If it exists it hits EEXIST */
 #define GTP_DEVNAME	"gtp0"
 
+static unsigned int ns_if_nametoindex(int ns, const char *name)
+{
+	unsigned int r;
+	sigset_t oldmask;
+
+	switch_ns(ns, &oldmask);
+	r = if_nametoindex(name);
+	restore_ns(&oldmask);
+
+	return r;
+}
+
 int gtp_kernel_init(int ns,
 		    struct gsn_t *gsn, struct in_addr *net,
 		    struct in_addr *mask,
@@ -111,7 +123,7 @@ int gtp_kernel_init(int ns,
 
 	gtp_nl.enabled = true;
 	gtp_nl.ns = ns;
-	gtp_nl.ifidx = if_nametoindex(GTP_DEVNAME);
+	gtp_nl.ifidx = ns_if_nametoindex(ns, GTP_DEVNAME);
 
 	gtp_nl.nl = genl_socket_open();
 	if (gtp_nl.nl == NULL) {
