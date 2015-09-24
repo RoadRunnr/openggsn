@@ -48,6 +48,7 @@
 
 #include <time.h>
 
+#include "../lib/netns.h"
 #include "../lib/tun.h"
 #include "../lib/ippool.h"
 #include "../lib/syserr.h"
@@ -58,6 +59,8 @@
 
 int end = 0;
 int maxfd = 0;			/* For select()            */
+
+int gtp_ns = 0;
 
 struct in_addr listen_;
 struct in_addr netaddr, destaddr, net, mask;	/* Network interface       */
@@ -262,6 +265,8 @@ int main(int argc, char **argv)
 			printf("statedir: %s\n", args_info.statedir_arg);
 		if (args_info.gtpnl_arg)
 			printf("gtpnl: %s\n", args_info.gtpnl_arg);
+		if (args_info.gtpns_arg)
+			printf("gtpns: %s\n", args_info.gtpns_arg);
 		printf("timelimit: %d\n", args_info.timelimit_arg);
 	}
 
@@ -324,6 +329,8 @@ int main(int argc, char **argv)
 			printf("statedir: %s\n", args_info.statedir_arg);
 		if (args_info.gtpnl_arg)
 			printf("gtpnl: %s\n", args_info.gtpnl_arg);
+		if (args_info.gtpns_arg)
+			printf("gtpns: %s\n", args_info.gtpns_arg);
 		printf("timelimit: %d\n", args_info.timelimit_arg);
 	}
 
@@ -506,6 +513,16 @@ int main(int argc, char **argv)
 		log_pid(args_info.pidfile_arg);
 	}
 
+	init_netns();
+	if (args_info.gtpns_arg) {
+		DEBUGP(DGGSN, "gtpclient: Initialising Network Namespace\n");
+
+		if ((gtp_ns = get_nsfd(args_info.gtpns_arg)) <= 0) {
+			SYS_ERR(DGGSN, LOGL_ERROR, 0, "Failed to initialize network namespace");
+			exit(1);
+		}
+	}
+
 	DEBUGP(DGGSN, "gtpclient: Initialising GTP tunnel\n");
 
 	if (gtp_new(&gsn, args_info.statedir_arg, &listen_, GTP_MODE_GGSN)) {
@@ -520,7 +537,7 @@ int main(int argc, char **argv)
 		maxfd = gsn->fd1u;
 
 	/* use GTP kernel module for data packet encapsulation */
-	if (gtp_kernel_init(gsn, &net, &mask, &args_info) < 0)
+	if (gtp_kernel_init(gtp_ns, gsn, &net, &mask, &args_info) < 0)
 		goto err;
 
 	gtp_set_cb_data_ind(gsn, encaps_tun);

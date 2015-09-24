@@ -7,7 +7,8 @@ extern int debug;
 extern char *ipup;
 
 #ifdef GTP_KERNEL
-int gtp_kernel_init(struct gsn_t *gsn, struct in_addr *net,
+int gtp_kernel_init(int ns,
+		    struct gsn_t *gsn, struct in_addr *net,
 		    struct in_addr *mask,
 		    struct gengetopt_args_info *args_info);
 void gtp_kernel_stop(void);
@@ -18,7 +19,8 @@ int gtp_kernel_tunnel_del(struct pdp_t *pdp);
 int gtp_kernel_enabled(void);
 
 #else
-static inline int gtp_kernel_init(struct gsn_t *gsn, struct in_addr *net,
+static inline int gtp_kernel_init(int ns,
+				  struct gsn_t *gsn, struct in_addr *net,
 				  struct in_addr *mask,
 				  struct gengetopt_args_info *args_info)
 {

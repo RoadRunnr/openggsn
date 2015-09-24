@@ -35,4 +35,5 @@ option  "logfile"     - "Logfile for errors"            string no
 option  "loglevel"    - "Global log ldevel"		string default="error" no
 
 option  "gtpnl"       g "GTP kernel support"            string default="eth0" no
+option  "gtpns"       - "Namespace for GTP interface"   string no
 

@@ -23,6 +23,7 @@
 
 #include <time.h>
 
+#include "../lib/netns.h"
 #include "../lib/tun.h"
 #include "../lib/syserr.h"
 #include "../gtp/pdp.h"
@@ -82,6 +83,8 @@ static int mask2prefix(struct in_addr *mask)
 }
 
 static struct {
+	int                     ns;
+	int                     ifidx;
 	int			genl_id;
 	struct mnl_socket	*nl;
 	bool			enabled;
@@ -90,33 +93,49 @@ static struct {
 /* Always forces the kernel to allocate gtp0. If it exists it hits EEXIST */
 #define GTP_DEVNAME	"gtp0"
 
-int gtp_kernel_init(struct gsn_t *gsn, struct in_addr *net,
+int gtp_kernel_init(int ns,
+		    struct gsn_t *gsn, struct in_addr *net,
 		    struct in_addr *mask,
 		    struct gengetopt_args_info *args_info)
 {
+	sigset_t oldmask;
+	int ret = -1;
+
 	if (!args_info->gtpnl_given)
 		return 0;
 
-	if (gtp_dev_create(GTP_DEVNAME, args_info->gtpnl_orig,
+	if (gtp_dev_create(ns, GTP_DEVNAME, args_info->gtpnl_orig,
 			   gsn->fd0, gsn->fd1u) < 0) {
 		SYS_ERR(DGGSN, LOGL_ERROR, 0,
 			"cannot create GTP tunnel device: %s\n",
 			strerror(errno));
 		return -1;
 	}
+
+	if (ns > 0) {
+		if (switch_ns(ns, &oldmask) < 0) {
+			SYS_ERR(DGGSN, LOGL_ERROR, 0,
+				"unable to switch network namespace: %s\n",
+				strerror(errno));
+			return -1;
+		}
+	}
+
 	gtp_nl.enabled = true;
+	gtp_nl.ns = ns;
+	gtp_nl.ifidx = if_nametoindex(GTP_DEVNAME);
 
 	gtp_nl.nl = genl_socket_open();
 	if (gtp_nl.nl == NULL) {
 		SYS_ERR(DGGSN, LOGL_ERROR, 0,
 			"cannot create genetlink socket\n");
-		return -1;
+		goto out_restore_ns;
 	}
 	gtp_nl.genl_id = genl_lookup_family(gtp_nl.nl, "gtp");
 	if (gtp_nl.genl_id < 0) {
 		SYS_ERR(DGGSN, LOGL_ERROR, 0,
 			"cannot lookup GTP genetlink ID\n");
-		return -1;
+		goto out_restore_ns;
 	}
 	if (debug) {
 		SYS_ERR(DGGSN, LOGL_NOTICE, 0,
@@ -151,12 +170,18 @@ int gtp_kernel_init(struct gsn_t *gsn, struct in_addr *net,
 		if (err < 0) {
 			SYS_ERR(DGGSN, LOGL_ERROR, 0,
 				"Failed to launch script `%s'", ipup);
-			return -1;
+			goto out_restore_ns;
 		}
 	}
 	SYS_ERR(DGGSN, LOGL_NOTICE, 0, "GTP kernel configured\n");
 
-	return 0;
+	ret = 0;
+
+out_restore_ns:
+	if (ns > 0)
+		restore_ns(&oldmask);
+
+	return ret;
 }
 
 void gtp_kernel_stop(void)
@@ -185,7 +210,8 @@ int gtp_kernel_tunnel_add(struct pdp_t *pdp)
 	memcpy(&ms, &pdp->eua.v[2], sizeof(struct in_addr));
 	memcpy(&sgsn, &pdp->gsnrc.v[0], sizeof(struct in_addr));
 
-	gtp_tunnel_set_ifidx(t, if_nametoindex(GTP_DEVNAME));
+	gtp_tunnel_set_ifns(t, gtp_nl.ns);
+	gtp_tunnel_set_ifidx(t, gtp_nl.ifidx);
 	gtp_tunnel_set_version(t, pdp->version);
 	gtp_tunnel_set_ms_ip4(t, &ms);
 	gtp_tunnel_set_sgsn_ip4(t, &sgsn);
@@ -216,7 +242,8 @@ int gtp_kernel_tunnel_del(struct pdp_t *pdp)
 	if (t == NULL)
 		return -1;
 
-	gtp_tunnel_set_ifidx(t, if_nametoindex(GTP_DEVNAME));
+	gtp_tunnel_set_ifns(t, gtp_nl.ns);
+	gtp_tunnel_set_ifidx(t, gtp_nl.ifidx);
 	gtp_tunnel_set_version(t, pdp->version);
 	if (pdp->version == 0) {
 		gtp_tunnel_set_tid(t, pdp_gettid(pdp->imsi, pdp->nsapi));
