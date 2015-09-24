@@ -98,9 +98,6 @@ int gtp_kernel_init(int ns,
 		    struct in_addr *mask,
 		    struct gengetopt_args_info *args_info)
 {
-	sigset_t oldmask;
-	int ret = -1;
-
 	if (!args_info->gtpnl_given)
 		return 0;
 
@@ -112,15 +109,6 @@ int gtp_kernel_init(int ns,
 		return -1;
 	}
 
-	if (ns > 0) {
-		if (switch_ns(ns, &oldmask) < 0) {
-			SYS_ERR(DGGSN, LOGL_ERROR, 0,
-				"unable to switch network namespace: %s\n",
-				strerror(errno));
-			return -1;
-		}
-	}
-
 	gtp_nl.enabled = true;
 	gtp_nl.ns = ns;
 	gtp_nl.ifidx = if_nametoindex(GTP_DEVNAME);
@@ -129,13 +117,13 @@ int gtp_kernel_init(int ns,
 	if (gtp_nl.nl == NULL) {
 		SYS_ERR(DGGSN, LOGL_ERROR, 0,
 			"cannot create genetlink socket\n");
-		goto out_restore_ns;
+		return -1;
 	}
 	gtp_nl.genl_id = genl_lookup_family(gtp_nl.nl, "gtp");
 	if (gtp_nl.genl_id < 0) {
 		SYS_ERR(DGGSN, LOGL_ERROR, 0,
 			"cannot lookup GTP genetlink ID\n");
-		goto out_restore_ns;
+		return -1;
 	}
 	if (debug) {
 		SYS_ERR(DGGSN, LOGL_NOTICE, 0,
@@ -170,18 +158,12 @@ int gtp_kernel_init(int ns,
 		if (err < 0) {
 			SYS_ERR(DGGSN, LOGL_ERROR, 0,
 				"Failed to launch script `%s'", ipup);
-			goto out_restore_ns;
+			return -1;
 		}
 	}
 	SYS_ERR(DGGSN, LOGL_NOTICE, 0, "GTP kernel configured\n");
 
-	ret = 0;
-
-out_restore_ns:
-	if (ns > 0)
-		restore_ns(&oldmask);
-
-	return ret;
+	return 0;
 }
 
 void gtp_kernel_stop(void)
